@@ -1,0 +1,192 @@
+# macro_neopixel
+
+##	     behavior overview
+##	State				LED behavior
+##	Heating	 			Pulsing temp gradient
+##	At temp				Solid gradient
+##	Printing			Temp gradient
+##	Filament runout	 	Purple chase
+##	Pause (manual)	 	Yellow breathing
+##	Thermal eRROR/M112	Fast flashing red
+##	Power cycle			LEDs reset
+
+
+
+######################### EFFECCT - FILAMENT RUNOUT #####################
+[gcode_macro LED_FILAMENT_RUNOUT]
+variable_index: 1
+gcode:
+    {% set count = 11 %}
+    {% set i = index|int %}
+
+    SET_LED LED=status_leds RED=0 GREEN=0 BLUE=0
+    SET_LED LED=status_leds RED=0.6 GREEN=0 BLUE=0.6 INDEX={i}
+
+    {% set next = i + 1 if i < count else 1 %}
+    SET_GCODE_VARIABLE MACRO=LED_FILAMENT_RUNOUT VARIABLE=index VALUE={next}
+
+# LOOP WHILE PAUSED
+[delayed_gcode FILAMENT_LED_LOOP]
+gcode:
+    {% if printer.pause_resume.is_paused %}
+        LED_FILAMENT_RUNOUT
+        UPDATE_DELAYED_GCODE ID=FILAMENT_LED_LOOP DURATION=0.25
+    {% endif %}
+
+
+######################### EFFECCT - THERMAL RUNAWAY #####################
+[gcode_macro LED_THERMAL_ERROR]
+gcode:
+    SET_LED LED=status_leds RED=1 GREEN=0 BLUE=0
+    G4 P200
+    SET_LED LED=status_leds RED=0 GREEN=0 BLUE=0
+    G4 P200
+	
+[delayed_gcode THERMAL_ERROR_LOOP]
+gcode:
+    LED_THERMAL_ERROR
+    UPDATE_DELAYED_GCODE ID=THERMAL_ERROR_LOOP DURATION=0.4
+
+
+########################  Effect - IDLE ################
+[led_effect panel_idle]
+autostart:              true
+frame_rate:             24
+leds:
+    neopixel:my_led
+layers:
+    breathing  10 1 top (.5,.5,1)
+	
+[gcode_macro LED_IDLE]
+gcode:
+autostart:              false  ##### AJS  ### AJS
+frame_rate:             24
+leds:
+    neopixel:my_led
+layers:
+    breathing  10 1 top (.5,.5,1)
+
+
+########################  Effect - PRINTING ################
+[gcode_macro LED_PRINTING]
+gcode:
+    SET_LED LED=status_leds RED=1 GREEN=1 BLUE=1
+
+########################  Effect - PAUSED ################
+gcode_macro LED_PAUSED]
+gcode:
+    {% set t = printer.clock|float %}
+    {% set p = 0.5 + 0.5 * (t % 2) %}
+    SET_LED LED=status_leds RED={p} GREEN={p} BLUE=0
+
+delayed_gcode PAUSE_LED_LOOP]
+gcode:
+    {% if printer.pause_resume.is_paused %}
+        LED_PAUSED
+        UPDATE_DELAYED_GCODE ID=PAUSE_LED_LOOP DURATION=1
+    {% endif %}
+
+########################  Effect - ERROR ################
+[gcode_macro LED_ERROR]
+gcode:
+    SET_LED LED=status_leds RED=1 GREEN=0 BLUE=0
+
+
+
+############################# MACRO CLAMP ########################	
+[gcode_macro _CLAMP]
+variable_value: 0.0
+gcode:
+    {% set v = value|float %}
+    {% if v < 0 %}0{% elif v > 1 %}1{% else %}{v}{% endif %}
+
+
+######################### Temperature #################
+[[gcode_macro UPDATE_TEMP_LEDS]
+gcode:
+    {% set bed = printer.heater_bed %}
+    {% set hot = printer.extruder %}
+    {% set t = printer.clock|float %}
+    {% set pulse = 0.6 + 0.4 * (t % 2) %}
+
+    {% set bed_ratio = bed.temperature / bed.target if bed.target > 0 else 0 %}
+    {% set hot_ratio = hot.temperature / hot.target if hot.target > 0 else 0 %}
+    {% set bed_ratio = [bed_ratio, 1.0]|min %}
+    {% set hot_ratio = [hot_ratio, 1.0]|min %}
+
+    {% set bed_heating = bed.target > 0 and bed.temperature < bed.target - 1 %}
+    {% set hot_heating = hot.target > 0 and hot.temperature < hot.target - 1 %}
+
+    {% set bed_scale = pulse if bed_heating else 1.0 %}
+    {% set hot_scale = pulse if hot_heating else 1.0 %}
+
+    {% set bed_r = bed_ratio * bed_scale %}
+    {% set bed_g = (1.0 - abs(bed_ratio - 0.5) * 2) * bed_scale %}
+    {% set bed_b = (1.0 - bed_ratio) * bed_scale %}
+
+    {% set hot_r = hot_ratio * hot_scale %}
+    {% set hot_g = (1.0 - abs(hot_ratio - 0.5) * 2) * hot_scale %}
+    {% set hot_b = (1.0 - hot_ratio) * hot_scale %}
+
+    # Bed LEDs
+    {% for i in range(1,5) %}
+    SET_LED LED=status_leds RED={bed_r} GREEN={bed_g} BLUE={bed_b} INDEX={i}
+    {% endfor %}
+
+    # Hotend LEDs
+    {% for i in range(6,10) %}
+    SET_LED LED=status_leds RED={hot_r} GREEN={hot_g} BLUE={hot_b} INDEX={i}
+    {% endfor %}
+
+
+	
+[delayed_gcode TEMP_LED_LOOP]
+initial_duration: 1
+gcode:
+    UPDATE_TEMP_LEDS
+    UPDATE_DELAYED_GCODE ID=TEMP_LED_LOOP DURATION=1
+
+################################# HOOKS INTO KLIPPER ###########################
+[gcode_macro PAUSE]
+rename_existing: PAUSE_BASE
+gcode:
+    PAUSE_BASE
+    UPDATE_DELAYED_GCODE ID=TEMP_LED_LOOP DURATION=0
+    UPDATE_DELAYED_GCODE ID=PAUSE_LED_LOOP DURATION=1
+
+
+[gcode_macro RESUME]
+rename_existing: RESUME_BASE
+gcode:
+    RESUME_BASE
+    UPDATE_DELAYED_GCODE ID=PAUSE_LED_LOOP DURATION=0
+    UPDATE_DELAYED_GCODE ID=TEMP_LED_LOOP DURATION=1
+
+
+
+
+
+	
+[gcode_macro SHUTDOWN]
+rename_existing: SHUTDOWN_BASE
+gcode:
+    SHUTDOWN_BASE
+    UPDATE_DELAYED_GCODE ID=TEMP_LED_LOOP DURATION=0
+    UPDATE_DELAYED_GCODE ID=PAUSE_LED_LOOP DURATION=0
+    UPDATE_DELAYED_GCODE ID=FILAMENT_LED_LOOP DURATION=0
+    UPDATE_DELAYED_GCODE ID=THERMAL_ERROR_LOOP DURATION=0.4
+	
+[filament_switch_sensor filament]
+switch_pin: ^PA4
+pause_on_runout: True
+runout_gcode:
+    FILAMENT_RUNOUT
+	
+[gcode_macro FILAMENT_RUNOUT]
+gcode:
+    UPDATE_DELAYED_GCODE ID=TEMP_LED_LOOP DURATION=0
+    UPDATE_DELAYED_GCODE ID=PAUSE_LED_LOOP DURATION=0
+    UPDATE_DELAYED_GCODE ID=FILAMENT_LED_LOOP DURATION=0.25
+
+
+

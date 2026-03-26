@@ -1,0 +1,75 @@
+#!/bin/bash
+SOURCE="/"
+BACKUP_DIR="/root//backups"   # change this to your actual backup folder
+TIMESTAMP=$(date +%Y-%m-%d_%H-%M-%S)
+FILENAME="full_backup_$TIMESTAMP.tar.gz"
+echo "----------------------------------------"
+echo " Starting full system backup"
+echo " Source: $SOURCE"
+echo " Destination: $BACKUP_DIR/$FILENAME"
+echo " Compression: xz (.tar.xz)"
+echo "----------------------------------------"
+echo
+# ---- timing start ----
+START_EPOCH=$(date +%s)
+START_HUMAN=$(date -Is)
+
+echo "Backup started at: $START_HUMAN"
+
+# ---- tar with pv if available ----
+if command -v pv >/dev/null 2>&1; then
+  echo "Using pv for progress display"
+  tar -cJf - \
+    --exclude="$BACKUP_DIR" \
+    --exclude="/proc" \
+    --exclude="/sys" \
+    --exclude="/dev" \
+    --exclude="/run" \
+    --exclude="/tmp" \
+    --exclude="/mnt" \
+    --exclude="/media" \
+    --exclude="/lost+found" \
+    / \
+  | pv \
+  > "$BACKUP_DIR/$FILENAME"
+else
+  echo "pv not found — running tar without progress"
+  tar -cJvf "$BACKUP_DIR/$FILENAME" \
+    --exclude="$BACKUP_DIR" \
+    --exclude="/proc" \
+    --exclude="/sys" \
+    --exclude="/dev" \
+    --exclude="/run" \
+    --exclude="/tmp" \
+    --exclude="/mnt" \
+    --exclude="/media" \
+    --exclude="/lost+found" \
+    /
+fi
+
+#ar -cJvf "$BACKUP_DIR/$FILENAME" \
+#   --exclude="$BACKUP_DIR" \
+#   --exclude="/proc" \
+#   --exclude="/sys" \
+#   --exclude="/dev" \
+#   --exclude="/run" \
+#   --exclude="/tmp" \
+#   --exclude="/mnt" \
+#   --exclude="/media" \
+#   --exclude="/lost+found" \
+#   /
+#
+echo
+echo "----------------------------------------"
+echo " Backup completed"
+echo " Saved as: $BACKUP_DIR/$FILENAME"
+echo "----------------------------------------"
+echo
+# ---- timing end ----
+END_EPOCH=$(date +%s)
+END_HUMAN=$(date -Is)
+ELAPSED=$((END_EPOCH - START_EPOCH))
+
+printf "\nBackup finished at: %s\n" "$END_HUMAN"
+printf "Elapsed time: %02d:%02d:%02d\n" \
+  $((ELAPSED/3600)) $(((ELAPSED%3600)/60)) $((ELAPSED%60))
