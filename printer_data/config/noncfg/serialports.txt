@@ -1,1 +1,0 @@
-usb-Klipper_stm32g0b1xx_1D000D0010504B5735313920-if00
