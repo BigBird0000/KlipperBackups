@@ -1,6 +1,6 @@
 .env
 secrets.conf
-*.swp
+.search.log.swp
 *.tmp
 printer-[0-9]*_[0-9]*.cfg
 .bash_aliases.bak
